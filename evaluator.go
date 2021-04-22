@@ -2,7 +2,6 @@ package resource_evaluator
 
 import (
 	"fmt"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -14,23 +13,23 @@ import (
 )
 
 // the name used for object count quota
-var podObjectCountName = ObjectCountQuotaResourceNameFor(corev1.SchemeGroupVersion.WithResource("pods").GroupResource())
+var podObjectCountName = ObjectCountQuotaResourceNameFor(v1.SchemeGroupVersion.WithResource("pods").GroupResource())
 
 // PodUsageFunc returns the quota usage for a pod.
 // A pod is charged for quota if the following are not true.
 //  - pod has a terminal phase (failed or succeeded)
 //  - pod has been marked for deletion and grace period has expired
-func PodUsageFunc(obj runtime.Object, clock clock.Clock) (corev1.ResourceList, error) {
+func PodUsageFunc(obj runtime.Object, clock clock.Clock) (v1.ResourceList, error) {
 	pod, err := toExternalPodOrError(obj)
 	if err != nil {
-		return corev1.ResourceList{}, err
+		return v1.ResourceList{}, err
 	}
 
 	// always quota the object count (even if the pod is end of life)
 	// object count quotas track all objects that are in storage.
 	// where "pods" tracks all pods that have not reached a terminal state,
 	// count/pods tracks all pods independent of state.
-	result := corev1.ResourceList{
+	result := v1.ResourceList{
 		podObjectCountName: *(resource.NewQuantity(1, resource.DecimalSI)),
 	}
 
@@ -40,8 +39,8 @@ func PodUsageFunc(obj runtime.Object, clock clock.Clock) (corev1.ResourceList, e
 		return result, nil
 	}
 
-	requests := corev1.ResourceList{}
-	limits := corev1.ResourceList{}
+	requests := v1.ResourceList{}
+	limits := v1.ResourceList{}
 	// TODO: ideally, we have pod level requests and limits in the future.
 	for i := range pod.Spec.Containers {
 		requests = Add(requests, pod.Spec.Containers[i].Resources.Requests)
@@ -59,10 +58,10 @@ func PodUsageFunc(obj runtime.Object, clock clock.Clock) (corev1.ResourceList, e
 	return result, nil
 }
 
-func toExternalPodOrError(obj runtime.Object) (*corev1.Pod, error) {
-	pod := &corev1.Pod{}
+func toExternalPodOrError(obj runtime.Object) (*v1.Pod, error) {
+	pod := &v1.Pod{}
 	switch t := obj.(type) {
-	case *corev1.Pod:
+	case *v1.Pod:
 		pod = t
 	default:
 		return nil, fmt.Errorf("expect *api.Pod or *v1.Pod, got %v", t)
@@ -71,18 +70,18 @@ func toExternalPodOrError(obj runtime.Object) (*corev1.Pod, error) {
 }
 
 // ObjectCountQuotaResourceNameFor returns the object count quota name for specified groupResource
-func ObjectCountQuotaResourceNameFor(groupResource schema.GroupResource) corev1.ResourceName {
+func ObjectCountQuotaResourceNameFor(groupResource schema.GroupResource) v1.ResourceName {
 	if len(groupResource.Group) == 0 {
-		return corev1.ResourceName("count/" + groupResource.Resource)
+		return v1.ResourceName("count/" + groupResource.Resource)
 	}
-	return corev1.ResourceName("count/" + groupResource.Resource + "." + groupResource.Group)
+	return v1.ResourceName("count/" + groupResource.Resource + "." + groupResource.Group)
 }
 
 // QuotaV1Pod returns true if the pod is eligible to track against a quota
 // if it's not in a terminal state according to its phase.
-func QuotaV1Pod(pod *corev1.Pod, clock clock.Clock) bool {
+func QuotaV1Pod(pod *v1.Pod, clock clock.Clock) bool {
 	// if pod is terminal, ignore it for quota
-	if corev1.PodFailed == pod.Status.Phase || corev1.PodSucceeded == pod.Status.Phase {
+	if v1.PodFailed == pod.Status.Phase || v1.PodSucceeded == pod.Status.Phase {
 		return false
 	}
 	// if pods are stuck terminating (for example, a node is lost), we do not want
@@ -99,8 +98,8 @@ func QuotaV1Pod(pod *corev1.Pod, clock clock.Clock) bool {
 	return true
 }
 
-func Add(a corev1.ResourceList, b corev1.ResourceList) corev1.ResourceList {
-	result := corev1.ResourceList{}
+func Add(a v1.ResourceList, b v1.ResourceList) v1.ResourceList {
+	result := v1.ResourceList{}
 	for key, value := range a {
 		quantity := value.DeepCopy()
 		if other, found := b[key]; found {
@@ -117,8 +116,8 @@ func Add(a corev1.ResourceList, b corev1.ResourceList) corev1.ResourceList {
 }
 
 // Max returns the result of Max(a, b) for each named resource
-func Max(a corev1.ResourceList, b corev1.ResourceList) corev1.ResourceList {
-	result := corev1.ResourceList{}
+func Max(a v1.ResourceList, b v1.ResourceList) v1.ResourceList {
+	result := v1.ResourceList{}
 	for key, value := range a {
 		if other, found := b[key]; found {
 			if value.Cmp(other) <= 0 {
@@ -137,40 +136,40 @@ func Max(a corev1.ResourceList, b corev1.ResourceList) corev1.ResourceList {
 }
 
 // podComputeUsageHelper can summarize the pod compute quota usage based on requests and limits
-func podComputeUsageHelper(requests corev1.ResourceList, limits corev1.ResourceList) corev1.ResourceList {
-	result := corev1.ResourceList{}
-	result[corev1.ResourcePods] = resource.MustParse("1")
-	if request, found := requests[corev1.ResourceCPU]; found {
-		result[corev1.ResourceCPU] = request
-		result[corev1.ResourceRequestsCPU] = request
+func podComputeUsageHelper(requests v1.ResourceList, limits v1.ResourceList) v1.ResourceList {
+	result := v1.ResourceList{}
+	result[v1.ResourcePods] = resource.MustParse("1")
+	if request, found := requests[v1.ResourceCPU]; found {
+		result[v1.ResourceCPU] = request
+		result[v1.ResourceRequestsCPU] = request
 	}
-	if limit, found := limits[corev1.ResourceCPU]; found {
-		result[corev1.ResourceLimitsCPU] = limit
+	if limit, found := limits[v1.ResourceCPU]; found {
+		result[v1.ResourceLimitsCPU] = limit
 	}
-	if request, found := requests[corev1.ResourceMemory]; found {
-		result[corev1.ResourceMemory] = request
-		result[corev1.ResourceRequestsMemory] = request
+	if request, found := requests[v1.ResourceMemory]; found {
+		result[v1.ResourceMemory] = request
+		result[v1.ResourceRequestsMemory] = request
 	}
-	if limit, found := limits[corev1.ResourceMemory]; found {
-		result[corev1.ResourceLimitsMemory] = limit
+	if limit, found := limits[v1.ResourceMemory]; found {
+		result[v1.ResourceLimitsMemory] = limit
 	}
-	if request, found := requests[corev1.ResourceEphemeralStorage]; found {
-		result[corev1.ResourceEphemeralStorage] = request
-		result[corev1.ResourceRequestsEphemeralStorage] = request
+	if request, found := requests[v1.ResourceEphemeralStorage]; found {
+		result[v1.ResourceEphemeralStorage] = request
+		result[v1.ResourceRequestsEphemeralStorage] = request
 	}
-	if limit, found := limits[corev1.ResourceEphemeralStorage]; found {
-		result[corev1.ResourceLimitsEphemeralStorage] = limit
+	if limit, found := limits[v1.ResourceEphemeralStorage]; found {
+		result[v1.ResourceLimitsEphemeralStorage] = limit
 	}
 	for resource, request := range requests {
 		// for resources with certain prefix, e.g. hugepages
 		if ContainsPrefix(requestedResourcePrefixes, resource) {
 			result[resource] = request
-			result[maskResourceWithPrefix(resource, corev1.DefaultResourceRequestsPrefix)] = request
+			result[maskResourceWithPrefix(resource, v1.DefaultResourceRequestsPrefix)] = request
 		}
 		// for extended resources
 		if IsExtendedResourceName(resource) {
 			// only quota objects in format of "requests.resourceName" is allowed for extended resource.
-			result[maskResourceWithPrefix(resource, corev1.DefaultResourceRequestsPrefix)] = request
+			result[maskResourceWithPrefix(resource, v1.DefaultResourceRequestsPrefix)] = request
 		}
 	}
 
@@ -178,7 +177,7 @@ func podComputeUsageHelper(requests corev1.ResourceList, limits corev1.ResourceL
 }
 
 // ContainsPrefix returns true if the specified item has a prefix that contained in given prefix Set
-func ContainsPrefix(prefixSet []string, item corev1.ResourceName) bool {
+func ContainsPrefix(prefixSet []string, item v1.ResourceName) bool {
 	for _, prefix := range prefixSet {
 		if strings.HasPrefix(string(item), prefix) {
 			return true
@@ -189,21 +188,21 @@ func ContainsPrefix(prefixSet []string, item corev1.ResourceName) bool {
 
 // maskResourceWithPrefix mask resource with certain prefix
 // e.g. hugepages-XXX -> requests.hugepages-XXX
-func maskResourceWithPrefix(resource corev1.ResourceName, prefix string) corev1.ResourceName {
-	return corev1.ResourceName(fmt.Sprintf("%s%s", prefix, string(resource)))
+func maskResourceWithPrefix(resource v1.ResourceName, prefix string) v1.ResourceName {
+	return v1.ResourceName(fmt.Sprintf("%s%s", prefix, string(resource)))
 }
 
 // podResourcePrefixes are the set of prefixes for resources (Hugepages, and other
 // potential extended reources with specific prefix) managed by quota associated with pods.
 var podResourcePrefixes = []string{
-	corev1.ResourceHugePagesPrefix,
-	corev1.ResourceRequestsHugePagesPrefix,
+	v1.ResourceHugePagesPrefix,
+	v1.ResourceRequestsHugePagesPrefix,
 }
 
 // requestedResourcePrefixes are the set of prefixes for resources
 // that might be declared in pod's Resources.Requests/Limits
 var requestedResourcePrefixes = []string{
-	corev1.ResourceHugePagesPrefix,
+	v1.ResourceHugePagesPrefix,
 }
 
 // IsExtendedResourceName returns true if:
@@ -238,10 +237,10 @@ func IsPrefixedNativeResource(name v1.ResourceName) bool {
 }
 
 // the name used for object count quota
-var serviceObjectCountName = ObjectCountQuotaResourceNameFor(corev1.SchemeGroupVersion.WithResource("services").GroupResource())
+var serviceObjectCountName = ObjectCountQuotaResourceNameFor(v1.SchemeGroupVersion.WithResource("services").GroupResource())
 
-func ServiceUsage(item runtime.Object) (corev1.ResourceList, error) {
-	result := corev1.ResourceList{}
+func ServiceUsage(item runtime.Object) (v1.ResourceList, error) {
+	result := v1.ResourceList{}
 	svc, err := toExternalServiceOrError(item)
 	if err != nil {
 		return result, err
@@ -249,28 +248,28 @@ func ServiceUsage(item runtime.Object) (corev1.ResourceList, error) {
 	ports := len(svc.Spec.Ports)
 	// default service usage
 	result[serviceObjectCountName] = *(resource.NewQuantity(1, resource.DecimalSI))
-	result[corev1.ResourceServices] = *(resource.NewQuantity(1, resource.DecimalSI))
-	result[corev1.ResourceServicesLoadBalancers] = resource.Quantity{Format: resource.DecimalSI}
-	result[corev1.ResourceServicesNodePorts] = resource.Quantity{Format: resource.DecimalSI}
+	result[v1.ResourceServices] = *(resource.NewQuantity(1, resource.DecimalSI))
+	result[v1.ResourceServicesLoadBalancers] = resource.Quantity{Format: resource.DecimalSI}
+	result[v1.ResourceServicesNodePorts] = resource.Quantity{Format: resource.DecimalSI}
 	switch svc.Spec.Type {
-	case corev1.ServiceTypeNodePort:
+	case v1.ServiceTypeNodePort:
 		// node port services need to count node ports
 		value := resource.NewQuantity(int64(ports), resource.DecimalSI)
-		result[corev1.ResourceServicesNodePorts] = *value
-	case corev1.ServiceTypeLoadBalancer:
+		result[v1.ResourceServicesNodePorts] = *value
+	case v1.ServiceTypeLoadBalancer:
 		// load balancer services need to count node ports and load balancers
 		value := resource.NewQuantity(int64(ports), resource.DecimalSI)
-		result[corev1.ResourceServicesNodePorts] = *value
-		result[corev1.ResourceServicesLoadBalancers] = *(resource.NewQuantity(1, resource.DecimalSI))
+		result[v1.ResourceServicesNodePorts] = *value
+		result[v1.ResourceServicesLoadBalancers] = *(resource.NewQuantity(1, resource.DecimalSI))
 	}
 	return result, nil
 }
 
 // convert the input object to an internal service object or error.
-func toExternalServiceOrError(obj runtime.Object) (*corev1.Service, error) {
-	svc := &corev1.Service{}
+func toExternalServiceOrError(obj runtime.Object) (*v1.Service, error) {
+	svc := &v1.Service{}
 	switch t := obj.(type) {
-	case *corev1.Service:
+	case *v1.Service:
 		svc = t
 	default:
 		return nil, fmt.Errorf("expect *api.Service or *v1.Service, got %v", t)

@@ -276,3 +276,62 @@ func toExternalServiceOrError(obj runtime.Object) (*v1.Service, error) {
 	}
 	return svc, nil
 }
+
+// the name used for object count quota
+var pvcObjectCountName = ObjectCountQuotaResourceNameFor(v1.SchemeGroupVersion.WithResource("persistentvolumeclaims").GroupResource())
+
+const storageClassSuffix string = ".storageclass.storage.k8s.io/"
+
+func PVCUsage(item runtime.Object) (v1.ResourceList, error) {
+	result := v1.ResourceList{}
+	pvc, err := toExternalPersistentVolumeClaimOrError(item)
+	if err != nil {
+		return result, err
+	}
+
+	// charge for claim
+	result[v1.ResourcePersistentVolumeClaims] = *(resource.NewQuantity(1, resource.DecimalSI))
+	result[pvcObjectCountName] = *(resource.NewQuantity(1, resource.DecimalSI))
+	storageClassRef := GetPersistentVolumeClaimClass(pvc)
+	if len(storageClassRef) > 0 {
+		storageClassClaim := v1.ResourceName(storageClassRef + storageClassSuffix + string(v1.ResourcePersistentVolumeClaims))
+		result[storageClassClaim] = *(resource.NewQuantity(1, resource.DecimalSI))
+	}
+
+	// charge for storage
+	if request, found := pvc.Spec.Resources.Requests[v1.ResourceStorage]; found {
+		result[v1.ResourceRequestsStorage] = request
+		// charge usage to the storage class (if present)
+		if len(storageClassRef) > 0 {
+			storageClassStorage := v1.ResourceName(storageClassRef + storageClassSuffix + string(v1.ResourceRequestsStorage))
+			result[storageClassStorage] = request
+		}
+	}
+	return result, nil
+}
+
+func toExternalPersistentVolumeClaimOrError(obj runtime.Object) (*v1.PersistentVolumeClaim, error) {
+	pvc := &v1.PersistentVolumeClaim{}
+	switch t := obj.(type) {
+	case *v1.PersistentVolumeClaim:
+		pvc = t
+	default:
+		return nil, fmt.Errorf("expect *api.PersistentVolumeClaim or *v1.PersistentVolumeClaim, got %v", t)
+	}
+	return pvc, nil
+}
+
+// GetPersistentVolumeClaimClass returns StorageClassName. If no storage class was
+// requested, it returns "".
+func GetPersistentVolumeClaimClass(claim *v1.PersistentVolumeClaim) string {
+	// Use beta annotation first
+	if class, found := claim.Annotations[v1.BetaStorageClassAnnotation]; found {
+		return class
+	}
+
+	if claim.Spec.StorageClassName != nil {
+		return *claim.Spec.StorageClassName
+	}
+
+	return ""
+}

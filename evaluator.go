@@ -335,3 +335,11 @@ func GetPersistentVolumeClaimClass(claim *v1.PersistentVolumeClaim) string {
 
 	return ""
 }
+
+// Usage returns the resource usage for the specified object
+func ObjectCountUsage(resourceName string) v1.ResourceList {
+	quantity := resource.NewQuantity(1, resource.DecimalSI)
+	resourceList := v1.ResourceList{}
+	resourceList[v1.ResourceName(resourceName)] = *quantity
+	return resourceList
+}
